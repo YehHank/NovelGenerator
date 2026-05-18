@@ -1,0 +1,2 @@
+data: {"error": "(sqlite3.OperationalError) database is locked\n[SQL: INSERT INTO episodes (story_id, episode_number, title, content, summary, direction_hint, audio_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]\n[parameters: (1, 3, '第3集', '', '', '', '', '2026-05-14 07:09:54.703425')]\n(Background on this error at: https://sqlalche.me/e/20/e3q8)"}
+

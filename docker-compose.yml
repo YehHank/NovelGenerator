@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8007:8000"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

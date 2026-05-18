@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #1a1a2e; }
+::-webkit-scrollbar-thumb { background: #e94560; border-radius: 3px; }
+
+/* Prose styling for novel content */
+.novel-prose {
+  line-height: 2;
+  font-size: 1.1rem;
+  letter-spacing: 0.02em;
+}
+.novel-prose p {
+  margin-bottom: 1.2em;
+  text-indent: 2em;
+}

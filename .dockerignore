@@ -1,0 +1,10 @@
+**/__pycache__
+**/*.pyc
+**/*.pyo
+.env
+.git
+.gitignore
+data/
+frontend/node_modules
+frontend/dist
+*.bat
