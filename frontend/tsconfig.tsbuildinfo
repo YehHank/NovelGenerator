@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/api/client.ts","./src/components/characterpanel.tsx","./src/components/plothookpanel.tsx","./src/components/ttsplayer.tsx","./src/pages/readerpage.tsx","./src/pages/settingspage.tsx","./src/pages/storylistpage.tsx"],"version":"5.9.3"}
