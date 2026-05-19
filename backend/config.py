@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     context_summary_episodes: int = 20
     max_tokens: int = 4096
     temperature: float = 0.8
-    llm_timeout: int = 120  # seconds for LLM API calls
+    llm_timeout: int = 1200 # seconds for LLM API calls
 
     # Database (PostgreSQL)
     # Database
