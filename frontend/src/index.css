@@ -23,3 +23,61 @@ body {
   margin-bottom: 1.2em;
   text-indent: 2em;
 }
+.novel-prose h1 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin: 1.5em 0 0.8em;
+}
+.novel-prose h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 1.3em 0 0.6em;
+}
+.novel-prose h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 1.2em 0 0.5em;
+}
+.novel-prose blockquote {
+  border-left: 3px solid #e94560;
+  padding-left: 1em;
+  margin: 1em 0;
+  color: #a0a0b0;
+  font-style: italic;
+}
+.novel-prose ul, .novel-prose ol {
+  margin: 0.8em 0;
+  padding-left: 2em;
+}
+.novel-prose li {
+  margin-bottom: 0.4em;
+}
+.novel-prose hr {
+  border: none;
+  border-top: 1px solid #333;
+  margin: 2em 0;
+}
+.novel-prose strong {
+  font-weight: 700;
+  color: #f0f0f0;
+}
+.novel-prose em {
+  font-style: italic;
+}
+.novel-prose code {
+  background: #2a2a3e;
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+.novel-prose pre {
+  background: #2a2a3e;
+  padding: 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+.novel-prose pre code {
+  background: none;
+  padding: 0;
+}

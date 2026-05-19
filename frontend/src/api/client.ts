@@ -14,6 +14,8 @@ export const getEpisodes = (storyId: number) => api.get(`/stories/${storyId}/epi
 export const getEpisode = (id: number) => api.get(`/episodes/${id}`).then(r => r.data);
 export const generateEpisode = (storyId: number, directionHint = '') =>
   api.post(`/stories/${storyId}/episodes/generate`, { direction_hint: directionHint }).then(r => r.data);
+export const reExtractEpisode = (episodeId: number) =>
+  api.post(`/episodes/${episodeId}/re-extract`).then(r => r.data);
 
 // SSE streaming generation
 export function generateEpisodeStream(
@@ -21,7 +23,7 @@ export function generateEpisodeStream(
   directionHint: string,
   onChunk: (chunk: string) => void,
   onMeta: (meta: { episode_id: number; episode_number: number }) => void,
-  onDone: () => Promise<void> | void,
+  onDone: (title?: string) => Promise<void> | void,
   onError: (err: string) => void,
   onAudio?: (base64: string) => void,
 ): AbortController {
@@ -41,6 +43,7 @@ export function generateEpisodeStream(
       const decoder = new TextDecoder();
       let buffer = '';
       let doneReceived = false;
+      let doneTitle: string | undefined = undefined;
       let streamError: string | null = null;
 
       const processLine = (line: string) => {
@@ -51,7 +54,7 @@ export function generateEpisodeStream(
           else if (parsed.episode_id) onMeta(parsed);
           else if (parsed.content) onChunk(parsed.content);
           else if (parsed.audio) onAudio?.(parsed.audio);
-          else if (parsed.done) doneReceived = true;
+          else if (parsed.done) { doneReceived = true; doneTitle = parsed.title; }
         } catch { /* ignore malformed JSON */ }
       };
 
@@ -82,7 +85,7 @@ export function generateEpisodeStream(
       }
 
       try {
-        await onDone();
+        await onDone(doneTitle);
       } catch (e) {
         onError(String(e));
       }
@@ -114,3 +117,6 @@ export const getEpisodeAudioUrl = (episodeId: number) => `/api/episodes/${episod
 // ── Settings ──
 export const getSettings = () => api.get('/settings').then(r => r.data);
 export const updateSettings = (data: any) => api.put('/settings', data).then(r => r.data);
+
+// ── Export ──
+export const getExportPdfUrl = (storyId: number) => `/api/stories/${storyId}/export/pdf`;

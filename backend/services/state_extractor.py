@@ -59,6 +59,22 @@ EXTRACTION_PROMPT = """你是一個 JSON 資料分析器。請根據以下小說
 只回傳 JSON，不要其他文字。"""
 
 
+async def _fallback_title(episode: Episode):
+    """Try to generate just a title when full extraction fails."""
+    if not episode.content or episode.title != f"第{episode.episode_number}集":
+        return  # already has a title or no content to work with
+    try:
+        raw = await chat_completion(
+            [{"role": "user", "content": f"請為以下小說章節取一個簡短有力的標題（3-10字），只回傳標題文字，不要引號或其他內容：\n\n{episode.content[:1500]}"}],
+            temperature=0.3,
+        )
+        title = raw.strip().strip('"\'「」《》')
+        if title:
+            episode.title = title
+    except Exception:
+        logger.warning("Fallback title generation also failed for episode %s", episode.episode_number)
+
+
 async def extract_and_apply(db: AsyncSession, story_id: int, episode: Episode):
     """Run a second LLM call to extract state changes, then apply to DB."""
     try:
@@ -89,9 +105,10 @@ async def extract_and_apply(db: AsyncSession, story_id: int, episode: Episode):
         raw = await chat_completion(
             [{"role": "user", "content": prompt}],
             json_mode=True,
-            max_tokens=2048,
             temperature=0.2,
         )
+
+        logger.info(f"[Extract EP{episode.episode_number}] Raw LLM response ({len(raw)} chars):\n{raw[:2000]}")
 
         # Strip markdown code fences if present
         cleaned = raw.strip()
@@ -103,9 +120,12 @@ async def extract_and_apply(db: AsyncSession, story_id: int, episode: Episode):
         cleaned = cleaned.strip()
 
         data = json.loads(cleaned)
+        logger.info(f"[Extract EP{episode.episode_number}] Parsed keys: {list(data.keys())}, title={data.get('episode_title', '<missing>')}")
 
         # Apply episode title & summary
-        episode.title = data.get("episode_title", episode.title)
+        title = data.get("episode_title", "")
+        if title and title.strip():
+            episode.title = title.strip()
         episode.summary = data.get("episode_summary", "")
 
         # Apply character updates
@@ -159,5 +179,7 @@ async def extract_and_apply(db: AsyncSession, story_id: int, episode: Episode):
         await db.flush()
         logger.info(f"State extraction applied for episode {episode.episode_number}")
 
-    except Exception:
-        logger.exception("State extraction failed — episode saved but state not updated")
+    except Exception as e:
+        logger.exception(f"State extraction failed for EP{episode.episode_number}: {type(e).__name__}: {e}")
+        # Fallback: try to at least generate a title
+        await _fallback_title(episode)

@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
 import {
   getStory, getEpisodes, getEpisode,
   getCharacters, getHooks,
-  generateEpisodeStream, getSettings
+  generateEpisodeStream, getSettings,
+  reExtractEpisode
 } from '../api/client'
 import CharacterPanel from '../components/CharacterPanel'
 import PlotHookPanel from '../components/PlotHookPanel'
@@ -29,6 +31,7 @@ export default function ReaderPage() {
   const [sidebarTab, setSidebarTab] = useState<'characters' | 'hooks'>('characters')
   const [showNav, setShowNav] = useState(false)
   const [showControls, setShowControls] = useState(true)
+  const [reExtracting, setReExtracting] = useState(false)
 
   const abortRef = useRef<AbortController | null>(null)
   const autoGeneratingRef = useRef(false)
@@ -113,7 +116,7 @@ export default function ReaderPage() {
           streamMetaRef.current = meta
         },
         // onDone
-        async () => {
+        async (title?: string) => {
           // Immediately build a local episode from stream content so user never sees blank
           const meta = streamMetaRef.current
           const content = streamChunksRef.current
@@ -122,7 +125,7 @@ export default function ReaderPage() {
               id: meta.episode_id,
               story_id: sid,
               episode_number: meta.episode_number,
-              title: `第${meta.episode_number}集`,
+              title: title || `第${meta.episode_number}集`,
               content,
               summary: '',
               direction_hint: activeDirection,
@@ -216,6 +219,21 @@ export default function ReaderPage() {
     setGenerating(false)
   }
 
+  const handleReExtract = useCallback(async () => {
+    if (!currentEp || reExtracting) return
+    setReExtracting(true)
+    try {
+      const updated = await reExtractEpisode(currentEp.id)
+      setCurrentEp(updated)
+      setEpisodes((prev) => prev.map(e => e.id === updated.id ? updated : e))
+      await loadData()
+    } catch (e: any) {
+      alert('重新提取失敗：' + (e?.response?.data?.detail || e.message || e))
+    } finally {
+      setReExtracting(false)
+    }
+  }, [currentEp, reExtracting, loadData])
+
   const currentIndex = episodes.findIndex((e) => e.id === currentEp?.id)
   const prevEp = currentIndex > 0 ? episodes[currentIndex - 1] : null
   const nextEp = currentIndex < episodes.length - 1 ? episodes[currentIndex + 1] : null
@@ -254,13 +272,37 @@ export default function ReaderPage() {
         {/* Mobile episode info */}
         {currentEp && (
           <div className="sm:hidden text-novel-muted text-xs mt-1 flex items-center justify-between">
-            <span>第 {currentEp.episode_number} 集 — {currentEp.title}</span>
+            <span className="flex items-center gap-1">
+              第 {currentEp.episode_number} 集 — {currentEp.title}
+              {/^第\d+集$/.test(currentEp.title) && (
+                <button
+                  onClick={handleReExtract}
+                  disabled={reExtracting || generating}
+                  className="text-novel-accent hover:opacity-70 disabled:opacity-30 transition"
+                  title="重新提取標題與摘要"
+                >
+                  {reExtracting ? '⏳' : '🔄'}
+                </button>
+              )}
+            </span>
             <span>共 {episodes.length} 集</span>
           </div>
         )}
         {/* Desktop episode info */}
         {currentEp && (
-          <span className="text-novel-muted text-sm hidden sm:block mt-1">第 {currentEp.episode_number} 集 — {currentEp.title}</span>
+          <span className="text-novel-muted text-sm hidden sm:flex items-center gap-2 mt-1">
+            第 {currentEp.episode_number} 集 — {currentEp.title}
+            {/^第\d+集$/.test(currentEp.title) && (
+              <button
+                onClick={handleReExtract}
+                disabled={reExtracting || generating}
+                className="text-novel-accent hover:opacity-70 disabled:opacity-30 transition text-xs px-2 py-0.5 border border-novel-border rounded"
+                title="重新提取標題與摘要"
+              >
+                {reExtracting ? '提取中…' : '重新提取'}
+              </button>
+            )}
+          </span>
         )}
       </header>
 
@@ -270,9 +312,9 @@ export default function ReaderPage() {
           {/* Episode content */}
           <div ref={contentRef} className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-8 max-w-3xl mx-auto w-full">
             {(generating || (!currentEp && !!streamContent)) && streamContent ? (
-              <div className="novel-prose whitespace-pre-wrap">{streamContent}<span className="animate-pulse text-novel-accent">▌</span></div>
+              <div className="novel-prose"><ReactMarkdown>{streamContent}</ReactMarkdown><span className="animate-pulse text-novel-accent">▌</span></div>
             ) : currentEp ? (
-              <div className="novel-prose whitespace-pre-wrap">{currentEp.content}</div>
+              <div className="novel-prose"><ReactMarkdown>{currentEp.content}</ReactMarkdown></div>
             ) : (
               <div className="text-center text-novel-muted py-12 sm:py-20">
                 <p className="text-xl sm:text-2xl mb-4">還沒有任何集數</p>
