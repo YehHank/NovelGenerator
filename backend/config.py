@@ -23,13 +23,22 @@ class Settings(BaseSettings):
     context_summary_episodes: int = 20
     max_tokens: int = 4096
     temperature: float = 0.8
+    llm_timeout: int = 120  # seconds for LLM API calls
 
     # Database (PostgreSQL)
+    # Database
+    # Set db_backend to either "postgres" or "sqlite"
+    db_backend: str = "postgres"
+
+    # PostgreSQL settings
     postgres_host: str = "db"
     postgres_port: int = 5432
     postgres_user: str = "n8n_user"
     postgres_password: str = "n8n_secure_password"
     postgres_db: str = "novelgenerator"
+
+    # SQLite settings (filename under data dir)
+    sqlite_db_filename: str = "novel.db"
 
     # Paths
     data_dir: Path = Path(__file__).parent.parent / "data"
@@ -41,6 +50,10 @@ class Settings(BaseSettings):
 
     @property
     def db_url(self) -> str:
+        if self.db_backend and self.db_backend.lower() in ("sqlite", "sqlite3"):
+            db_path = (self.data_dir / self.sqlite_db_filename).resolve()
+            return f"sqlite+aiosqlite:///{db_path.as_posix()}"
+        # default: postgres
         return (
             f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"

@@ -11,6 +11,7 @@ from backend.database import async_session, get_db
 from backend.db_models import Episode, Story
 from backend.models.schemas import EpisodeOut, GenerateRequest
 from backend.services.story_service import generate_episode
+from backend.services.state_extractor import extract_and_apply
 
 router = APIRouter(prefix="/api", tags=["episodes"])
 logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ async def generate_ep_stream(story_id: int, body: GenerateRequest):
                     yield f"data: {payload}\n\n"
 
                 await finalize("".join(chunks))
-                yield f"data: {json.dumps({'done': True})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'title': episode.title}, ensure_ascii=False)}\n\n"
             except Exception as exc:
                 await db.rollback()
                 logger.exception("Streaming episode generation failed for story %s", story_id)
@@ -75,3 +76,26 @@ async def generate_ep_stream(story_id: int, body: GenerateRequest):
                 yield f"data: {payload}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/episodes/{episode_id}/re-extract", response_model=EpisodeOut)
+async def re_extract_episode(episode_id: int, db: AsyncSession = Depends(get_db)):
+    """Re-run state extraction on an existing episode to regenerate title, summary, characters, hooks."""
+    episode = await db.get(Episode, episode_id)
+    if not episode:
+        raise HTTPException(404, "Episode not found")
+    if not episode.content:
+        raise HTTPException(400, "Episode has no content to extract from")
+
+    # Reset fields that will be regenerated
+    episode.title = f"第{episode.episode_number}集"
+    episode.summary = ""
+
+    try:
+        await extract_and_apply(db, episode.story_id, episode)
+    except Exception as e:
+        logger.exception("Re-extract failed for episode %s", episode_id)
+        raise HTTPException(500, f"提取失敗：{type(e).__name__}: {e}")
+    await db.commit()
+    await db.refresh(episode)
+    return episode

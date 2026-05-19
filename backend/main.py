@@ -17,6 +17,7 @@ from backend.api.characters import router as characters_router
 from backend.api.hooks import router as hooks_router
 from backend.api.tts import router as tts_router
 from backend.api.settings import router as settings_router
+from backend.api.export import router as export_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -66,6 +67,7 @@ app.include_router(characters_router)
 app.include_router(hooks_router)
 app.include_router(tts_router)
 app.include_router(settings_router)
+app.include_router(export_router)
 
 # Serve frontend build if exists
 frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"

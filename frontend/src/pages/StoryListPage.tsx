@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { getStories, createStory } from '../api/client'
+import { getStories, createStory, getExportPdfUrl } from '../api/client'
 
 export default function StoryListPage() {
   const [stories, setStories] = useState<any[]>([])
@@ -54,6 +54,16 @@ export default function StoryListPage() {
                 <span>📖 {s.episode_count} 集</span>
               </p>
             </div>
+            <a
+              href={getExportPdfUrl(s.id)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="shrink-0 ml-3 px-3 py-1.5 bg-novel-border rounded text-xs sm:text-sm hover:bg-novel-accent hover:text-white transition"
+              title="導出 PDF"
+            >
+              📄 導出 PDF
+            </a>
           </div>
         ))}
 

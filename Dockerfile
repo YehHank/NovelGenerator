@@ -14,9 +14,11 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system dependencies for audio normalization
+# Install system dependencies for audio normalization and PDF generation
 RUN apt-get update \
-	&& apt-get install -y --no-install-recommends ffmpeg \
+	&& apt-get install -y --no-install-recommends \
+		ffmpeg \
+		fonts-noto-cjk \
 	&& rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies

@@ -1,7 +1,12 @@
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from backend.config import settings
 
-engine = create_async_engine(settings.db_url, echo=False)
+# Create engine differently depending on backend
+if settings.db_url.startswith("sqlite"):
+    engine = create_async_engine(settings.db_url, echo=False)
+else:
+    engine = create_async_engine(settings.db_url, echo=False)
+
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
