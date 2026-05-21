@@ -1,9 +1,13 @@
+import hashlib
+import json
 import logging
 import re
+import shutil
 import subprocess
 from typing import AsyncGenerator
 
 import aiohttp
+import asyncio
 import opencc
 
 from pathlib import Path
@@ -89,9 +93,6 @@ def ensure_valid_mp3_file(path: Path) -> None:
 SENTENCE_END = re.compile(r'[,，!?。！？…；;：:]+\s*')
 
 
-_ONLY_PUNCT = re.compile(r'^[\s\p{P}\p{S}]+$', re.UNICODE) if hasattr(re, 'UNICODE') else re.compile(r'^[\s\W]+$')
-
-
 def _has_speakable_text(text: str) -> bool:
     """判斷文字是否含有可發音內容（非純標點/符號）。"""
     return bool(re.search(r'[\w\u4e00-\u9fff\u3400-\u4dbf]', text))
@@ -104,7 +105,7 @@ def _split_sentences(text: str) -> list[str]:
 
 
 async def _tts_fishaudio(session: aiohttp.ClientSession, text: str) -> bytes:
-    """呼叫 Fish Audio TTS API，回傳 MP3 bytes。"""
+    """呼叫 Fish Audio TTS API，回傳 MP3 bytes。包含簡單重試機制以降低 transient 網路失敗影響。"""
     simplified = _t2s(text).strip() or text
     payload = {
         "text": simplified,
@@ -123,34 +124,100 @@ async def _tts_fishaudio(session: aiohttp.ClientSession, text: str) -> bytes:
         "temperature": 0.7,
     }
     headers = {"Authorization": f"Bearer {settings.fishaudio_api_key}"}
-    async with session.post(
-        settings.fishaudio_url,
-        json=payload,
-        headers=headers,
-        timeout=aiohttp.ClientTimeout(total=30),
-    ) as r:
-        if r.status != 200:
-            raise RuntimeError(f"FishAudio {r.status}: {await r.text()}")
-        return await r.read()
+
+    max_retries = 3
+    backoff_base = 0.5
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with session.post(
+                settings.fishaudio_url,
+                json=payload,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as r:
+                if r.status != 200:
+                    raise RuntimeError(f"FishAudio {r.status}: {await r.text()}")
+                return await r.read()
+        except (aiohttp.ClientConnectorError, asyncio.TimeoutError, OSError) as exc:
+            logger.warning(
+                "TTS request attempt %d/%d failed: %s",
+                attempt,
+                max_retries,
+                exc,
+            )
+            if attempt == max_retries:
+                raise
+            await asyncio.sleep(backoff_base * (2 ** (attempt - 1)))
+
+
+def _segments_dir(audio_dir: Path, episode_id: int) -> Path:
+    return audio_dir / f"episode_{episode_id}_segments"
+
+
+def _segment_manifest_path(seg_dir: Path) -> Path:
+    return seg_dir / "manifest.json"
+
+
+def _load_segment_manifest(seg_dir: Path, text_hash: str, total: int) -> dict:
+    """載入分段 manifest；若 hash 或總數不符則視為無效。"""
+    manifest_path = _segment_manifest_path(seg_dir)
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if manifest.get("text_hash") == text_hash and manifest.get("total") == total:
+                return manifest
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return {"text_hash": text_hash, "total": total, "completed": []}
+
+
+def _save_segment_manifest(seg_dir: Path, manifest: dict) -> None:
+    _segment_manifest_path(seg_dir).write_text(
+        json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 async def stream_speech(text: str, episode_id: int) -> AsyncGenerator[bytes, None]:
-    """逐句呼叫 TTS，每句完成後立即 yield MP3 資料；全部完成後存盤快取。"""
+    """逐句呼叫 TTS，支援中斷續傳：已生成的分段會暫存，重新請求時從中斷點繼續。"""
     audio_dir = settings.audio_dir
     audio_dir.mkdir(parents=True, exist_ok=True)
     out_path = audio_dir / f"episode_{episode_id}.mp3"
     raw_path = audio_dir / f"episode_{episode_id}.raw.mp3"
 
     sentences = _split_sentences(text) or [text]
+    total = len(sentences)
+    text_hash = hashlib.md5(text.encode()).hexdigest()
+
+    # 建立分段暫存目錄
+    seg_dir = _segments_dir(audio_dir, episode_id)
+    seg_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest = _load_segment_manifest(seg_dir, text_hash, total)
+    completed_indices: set[int] = set(manifest.get("completed", []))
+
     all_chunks: list[bytes] = []
 
     async with aiohttp.ClientSession() as session:
-        for sentence in sentences:
-            mp3_bytes = await _tts_fishaudio(session, sentence)
+        for idx, sentence in enumerate(sentences):
+            seg_file = seg_dir / f"{idx:04d}.mp3"
+
+            if idx in completed_indices and seg_file.exists():
+                # 已暫存：直接讀取
+                mp3_bytes = seg_file.read_bytes()
+                logger.debug("TTS segment %d/%d loaded from cache", idx + 1, total)
+            else:
+                # 呼叫 TTS 生成並暫存
+                mp3_bytes = await _tts_fishaudio(session, sentence)
+                seg_file.write_bytes(mp3_bytes)
+                completed_indices.add(idx)
+                manifest["completed"] = sorted(completed_indices)
+                _save_segment_manifest(seg_dir, manifest)
+                logger.debug("TTS segment %d/%d generated", idx + 1, total)
+
             yield mp3_bytes
             all_chunks.append(mp3_bytes)
 
-    # 存盤，供下次直接 FileResponse。先輸出原始拼接檔，再重整成合法單一 MP3。
+    # 全部完成：合併為最終檔案
     raw_path.write_bytes(b"".join(all_chunks))
     try:
         _normalize_mp3_file(raw_path, out_path)
@@ -159,6 +226,9 @@ async def stream_speech(text: str, episode_id: int) -> AsyncGenerator[bytes, Non
         raw_path.replace(out_path)
     else:
         raw_path.unlink(missing_ok=True)
+
+    # 清理分段暫存
+    shutil.rmtree(seg_dir, ignore_errors=True)
 
     logger.info(f"TTS audio cached: {out_path}")
 
