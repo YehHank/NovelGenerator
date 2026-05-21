@@ -1,4 +1,7 @@
 @echo off
+chcp 65001 >nul
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
 echo ========================================
 echo   NovelGenerator - 無限疊代小說生成器
 echo ========================================
