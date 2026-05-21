@@ -89,10 +89,18 @@ def ensure_valid_mp3_file(path: Path) -> None:
 SENTENCE_END = re.compile(r'[,，!?。！？…；;：:]+\s*')
 
 
+_ONLY_PUNCT = re.compile(r'^[\s\p{P}\p{S}]+$', re.UNICODE) if hasattr(re, 'UNICODE') else re.compile(r'^[\s\W]+$')
+
+
+def _has_speakable_text(text: str) -> bool:
+    """判斷文字是否含有可發音內容（非純標點/符號）。"""
+    return bool(re.search(r'[\w\u4e00-\u9fff\u3400-\u4dbf]', text))
+
+
 def _split_sentences(text: str) -> list[str]:
-    """依句末標點逐句分割。"""
+    """依句末標點逐句分割，過濾純標點片段。"""
     parts = re.split(r'(?<=[。！？…\n])\s*', text)
-    return [p.strip() for p in parts if p.strip()]
+    return [p.strip() for p in parts if p.strip() and _has_speakable_text(p)]
 
 
 async def _tts_fishaudio(session: aiohttp.ClientSession, text: str) -> bytes:
