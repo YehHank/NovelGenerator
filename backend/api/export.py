@@ -17,24 +17,62 @@ from backend.db_models import Episode, Story
 router = APIRouter(prefix="/api", tags=["export"])
 logger = logging.getLogger(__name__)
 
-# Possible CJK font paths (Debian/Ubuntu fonts-noto-cjk)
+# Possible CJK font paths (Linux and Windows common locations)
 _CJK_FONT_CANDIDATES = [
+    # Linux / Debian Noto CJK
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
     "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+    # Common Windows CJK fonts
+    "C:\\Windows\\Fonts\\msyh.ttc",
+    "C:\\Windows\\Fonts\\msyh.ttf",
+    "C:\\Windows\\Fonts\\msyhbd.ttc",
+    "C:\\Windows\\Fonts\\simsun.ttc",
+    "C:\\Windows\\Fonts\\simhei.ttf",
+    "C:\\Windows\\Fonts\\mingliu.ttc",
+    "C:\\Windows\\Fonts\\mingliu.ttf",
+    # Other common fonts
+    "C:\\Windows\\Fonts\\DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 ]
 
 
 def _find_cjk_font() -> str | None:
+    # Check explicit candidates first
     for p in _CJK_FONT_CANDIDATES:
         if Path(p).exists():
             return p
-    # Try a broader search
-    for root in [Path("/usr/share/fonts")]:
-        if root.exists():
-            for f in root.rglob("NotoSansCJK*Regular*"):
+    # Check for a local fonts folder inside the project (data/fonts)
+    try:
+        project_root = Path(__file__).resolve().parents[2]
+        local_fonts_dir = project_root / "data" / "fonts"
+        if local_fonts_dir.exists():
+            for f in local_fonts_dir.rglob("*.ttf"):
                 return str(f)
+            for f in local_fonts_dir.rglob("*.otf"):
+                return str(f)
+    except Exception:
+        pass
+    # Search common font directories for CJK fonts
+    search_roots = [Path("/usr/share/fonts"), Path("C:/Windows/Fonts")]
+    patterns = [
+        "*NotoSansCJK*",
+        "*NotoSerifCJK*",
+        "*msyh*",
+        "*simsun*",
+        "*simhei*",
+        "*mingliu*",
+        "*DejaVuSans*",
+    ]
+    for root in search_roots:
+        if root.exists():
+            try:
+                for pat in patterns:
+                    for f in root.rglob(pat):
+                        return str(f)
+            except Exception:
+                continue
     return None
 
 
@@ -80,18 +118,29 @@ async def export_story_pdf(story_id: int, db: AsyncSession = Depends(get_db)):
     pdf.set_auto_page_break(auto=True, margin=20)
     pdf.set_margins(20, 20, 20)
 
-    # Register CJK font
+    # Register CJK font (must be a TTF/OTF or otherwise unicode-capable font)
     font_path = _find_cjk_font()
-    if font_path:
-        pdf.add_font("NotoSansCJK", style="", fname=font_path)
-        pdf.add_font("NotoSansCJK", style="B", fname=font_path)
-        pdf.add_font("NotoSansCJK", style="I", fname=font_path)
-        pdf.add_font("NotoSansCJK", style="BI", fname=font_path)
+    if not font_path:
+        logger.error("No CJK font found. Checked candidates and system fonts.")
+        raise HTTPException(500, "No CJK font found on server. Install Noto Sans CJK or ensure a CJK font is available under system fonts.")
+    try:
+        # Register as a unicode TrueType/OpenType font for multiple styles.
+        # HTML generator may reference family names in different cases and append style
+        # suffixes, so register both capitalized and lowercase family names and
+        # all common styles to avoid "Undefined font" errors.
+        families = ["NotoSansCJK", "notosanscjk"]
+        styles = ("", "B", "I", "BI")
+        for fam in families:
+            for style in styles:
+                try:
+                    pdf.add_font(fam, style, str(font_path), uni=True)
+                except Exception:
+                    # If one style registration fails, continue trying others
+                    logger.debug("Could not register font %s style %s", fam, style)
         pdf.set_font("NotoSansCJK", size=12)
-    else:
-        logger.warning("CJK font not found, PDF may not render Chinese correctly")
-        pdf.add_page()
-        pdf.set_font("Helvetica", size=12)
+    except Exception as e:
+        logger.exception("Failed to register CJK font: %s", e)
+        raise HTTPException(500, "Failed to register CJK font for PDF generation")
 
     # Title page
     pdf.add_page()
@@ -111,7 +160,9 @@ async def export_story_pdf(story_id: int, db: AsyncSession = Depends(get_db)):
     pdf.write_html(html_body)
 
     # Output
-    pdf_bytes = pdf.output()
+    pdf_bytes = pdf.output(dest="S")
+    if isinstance(pdf_bytes, str):
+        pdf_bytes = pdf_bytes.encode("latin-1")
 
     filename = f"{story.title}.pdf"
     encoded_filename = quote(filename)
