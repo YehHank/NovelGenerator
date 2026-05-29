@@ -102,13 +102,24 @@ export default function TTSPlayer({ episodeId }: Props) {
     }
 
     audio.onended = () => {
+      audioRef.current = null
       setPlaying(false)
       setCurrentTime(0)
+      setFullyLoaded(false)
+      setRealDuration(0)
+      setBufferedEnd(0)
+      setShowBar(false)
     }
 
     audio.onerror = () => {
+      audioRef.current = null
       setLoading(false)
       setPlaying(false)
+      setShowBar(false)
+      setFullyLoaded(false)
+      setRealDuration(0)
+      setBufferedEnd(0)
+      setCurrentTime(0)
     }
 
     return audio
