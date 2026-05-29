@@ -92,6 +92,9 @@ def ensure_valid_mp3_file(path: Path) -> None:
 # 句子/子句結束標點（含逗號，讓 TTS 逐段播放）
 SENTENCE_END = re.compile(r'[,，!?。！？…；;：:]+\s*')
 
+# 最小合併字數：若片段字數少於此值，會與後續片段合併再送 TTS
+MIN_CHUNK_CHARS = 10
+
 
 def _has_speakable_text(text: str) -> bool:
     """判斷文字是否含有可發音內容（非純標點/符號）。"""
@@ -185,7 +188,26 @@ async def stream_speech(text: str, episode_id: int) -> AsyncGenerator[bytes, Non
     raw_path = audio_dir / f"episode_{episode_id}.raw.mp3"
 
     sentences = _split_sentences(text) or [text]
-    total = len(sentences)
+
+    # 將過短的片段（< MIN_CHUNK_CHARS）與後續片段合併，避免一次送出非常短的文字
+    chunks: list[str] = []
+    cur: str = ""
+    for s in sentences:
+        if not cur:
+            cur = s
+            continue
+
+        if len(cur.strip()) < MIN_CHUNK_CHARS:
+            sep = "" if cur.endswith(("\n", " ")) else " "
+            cur = cur + sep + s
+        else:
+            chunks.append(cur)
+            cur = s
+
+    if cur:
+        chunks.append(cur)
+
+    total = len(chunks)
     text_hash = hashlib.md5(text.encode()).hexdigest()
 
     # 建立分段暫存目錄
@@ -198,21 +220,19 @@ async def stream_speech(text: str, episode_id: int) -> AsyncGenerator[bytes, Non
     all_chunks: list[bytes] = []
 
     async with aiohttp.ClientSession() as session:
-        for idx, sentence in enumerate(sentences):
+        for idx, chunk in enumerate(chunks):
             seg_file = seg_dir / f"{idx:04d}.mp3"
 
             if idx in completed_indices and seg_file.exists():
-                # 已暫存：直接讀取
                 mp3_bytes = seg_file.read_bytes()
-                logger.debug("TTS segment %d/%d loaded from cache", idx + 1, total)
+                logger.debug("TTS chunk %d/%d loaded from cache", idx + 1, total)
             else:
-                # 呼叫 TTS 生成並暫存
-                mp3_bytes = await _tts_fishaudio(session, sentence)
+                mp3_bytes = await _tts_fishaudio(session, chunk)
                 seg_file.write_bytes(mp3_bytes)
                 completed_indices.add(idx)
                 manifest["completed"] = sorted(completed_indices)
                 _save_segment_manifest(seg_dir, manifest)
-                logger.debug("TTS segment %d/%d generated", idx + 1, total)
+                logger.debug("TTS chunk %d/%d generated", idx + 1, total)
 
             yield mp3_bytes
             all_chunks.append(mp3_bytes)
