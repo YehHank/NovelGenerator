@@ -238,17 +238,21 @@ async def stream_speech(text: str, episode_id: int) -> AsyncGenerator[bytes, Non
             all_chunks.append(mp3_bytes)
 
     # 全部完成：合併為最終檔案
-    raw_path.write_bytes(b"".join(all_chunks))
+    # 用 run_in_executor 執行阻塞 I/O，避免卡住 event loop 造成 uvicorn 無法把
+    # 最後幾個 chunk 從 Python 緩衝區寫入 OS socket，導致瀏覽器在中途停播
+    loop = asyncio.get_running_loop()
+    combined = b"".join(all_chunks)
+    await loop.run_in_executor(None, raw_path.write_bytes, combined)
     try:
-        _normalize_mp3_file(raw_path, out_path)
+        await loop.run_in_executor(None, _normalize_mp3_file, raw_path, out_path)
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
         logger.warning("Failed to normalize MP3 cache %s: %s", out_path, exc)
-        raw_path.replace(out_path)
+        await loop.run_in_executor(None, raw_path.replace, out_path)
     else:
         raw_path.unlink(missing_ok=True)
 
     # 清理分段暫存
-    shutil.rmtree(seg_dir, ignore_errors=True)
+    await loop.run_in_executor(None, lambda: shutil.rmtree(seg_dir, ignore_errors=True))
 
     logger.info(f"TTS audio cached: {out_path}")
 
